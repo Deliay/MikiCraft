@@ -1,0 +1,5 @@
+name: MikiCraft
+version: 1.0 # the plugin's version
+author: ZeroAsh
+main: com.bakacraft.miki.Main
+api-version: 1.19
