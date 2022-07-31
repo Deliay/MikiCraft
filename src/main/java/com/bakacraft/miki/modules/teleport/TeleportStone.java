@@ -1,129 +1,31 @@
-package com.bakacraft.miki.recipes;
+package com.bakacraft.miki.modules.teleport;
 
+import com.bakacraft.miki.recipes.IRecipeRegistrar;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class TeleportStone implements IRecipeRegistrar, Listener {
-    public static final class TeleportLore extends AbstractList<String> {
-        public static boolean isValidLore(List<String> lore) {
-            return Objects.equals(lore.size(), 3) && Objects.equals(lore.get(0), CATEGORY);
-        }
-        public static void verifyLore(List<String> lore) {
-            if (!isValidLore(lore)) {
-                throw new IllegalArgumentException("Invalid lore!");
-            }
-        }
+    public static final String STR_KEY = "teleport_stones";
+    public static final String STR_KEY_ADV = "teleport_stones_adv";
 
-        TeleportLore(String binding, String usage) {
-            this.binding = binding;
-            this.usage = usage;
-        }
-
-
-        TeleportLore(List<String> lore) {
-            verifyLore(lore);
-            this.usage = lore.get(1);
-            this.binding = lore.get(2);
-        }
-
-        private String binding;
-        private String usage;
-
-        public boolean isBound() {
-            return !Objects.equals(binding, NOT_SET);
-        }
-
-        public TeleportLore setLocation(Location location) {
-            String raw = String.format("%s,%s,%s,%s",
-                    location.getWorld().getName(),
-                    location.getBlockX(),
-                    location.getBlockY(),
-                    location.getBlockZ());
-            this.binding = Base64.getEncoder()
-                    .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
-            return this;
-        }
-
-        public Location getLocation() {
-            String raw = new String(Base64.getDecoder().decode(this.binding), StandardCharsets.UTF_8);
-            String[] locationStr = raw.split(",");
-
-            World world = Bukkit.getWorld(locationStr[0]);
-            int x = Integer.parseInt(locationStr[1]);
-            int y = Integer.parseInt(locationStr[2]);
-            int z = Integer.parseInt(locationStr[3]);
-            Block blockAt = world.getBlockAt(x, y, z);
-
-            // not safe!
-            if (Material.AIR.equals(blockAt.getType())) {
-                int safeY = world.getHighestBlockYAt(x, z);
-                return new Location(world, x, safeY + 1L, z);
-            }
-            return new Location(world, x, y + 1L, z);
-        }
-
-        private String getRawUsage() {
-            return this.usage.substring(USAGE.length());
-        }
-
-        public long getEstimate() {
-            return Long.parseLong(getRawUsage().split("/")[0]);
-        }
-
-        public boolean use() {
-            long estimate = getEstimate();
-            if (estimate <= 0){
-                return false;
-            }
-            this.usage = USAGE + (estimate - 1);
-            return true;
-        }
-
-        @Override
-        public String get(int index) {
-            switch (index) {
-                case 0 -> {
-                    return CATEGORY;
-                }
-                case 1 -> {
-                    return usage;
-                }
-                case 2 -> {
-                    return binding;
-                }
-            }
-            throw new IndexOutOfBoundsException();
-        }
-
-        @Override
-        public int size() {
-            return 3;
-        }
-    }
-    private static final String STR_KEY = "teleport_stones";
-    private static final String STR_KEY_ADV = "teleport_stones_adv";
-    private static final String NOT_SET = "(未设置) 对地面按右键即可设置";
-    private static final String CATEGORY = ChatColor.GOLD + "类别: " + ChatColor.WHITE + "传送石";
-    private static final String USAGE = ChatColor.LIGHT_PURPLE + "剩余次数: " + ChatColor.WHITE;
-
-    private static final String FULL_SUFFIX_NAME = ChatColor.AQUA +  "传送钻石";
+    public static final String FULL_SUFFIX_NAME = ChatColor.AQUA +  "传送钻石";
 
     private ShapedRecipe buildAdvanceRecipe(NamespacedKey key) {
         ItemStack item = new ItemStack(Material.DIAMOND);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(FULL_SUFFIX_NAME);
-        meta.setLore(Arrays.asList(CATEGORY, USAGE + "50", NOT_SET));
+        meta.setLore(Arrays.asList(TeleportLore.CATEGORY, TeleportLore.USAGE + "50", TeleportLore.getNotSetText));
         item.setItemMeta(meta);
 
         return new ShapedRecipe(key, item)
@@ -137,7 +39,7 @@ public class TeleportStone implements IRecipeRegistrar, Listener {
         ItemStack item = new ItemStack(Material.DIAMOND);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName("普通的" + FULL_SUFFIX_NAME);
-        meta.setLore(Arrays.asList(CATEGORY, USAGE + "25", NOT_SET));
+        meta.setLore(Arrays.asList(TeleportLore.CATEGORY, TeleportLore.USAGE + "25", TeleportLore.getNotSetText));
         item.setItemMeta(meta);
 
         return new ShapedRecipe(key, item)
@@ -186,8 +88,29 @@ public class TeleportStone implements IRecipeRegistrar, Listener {
             itemMeta.setLore(lore);
             teleportStone.setItemMeta(itemMeta);
             player.teleport(lore.getLocation());
+            player.sendMessage(ChatColor.GOLD + "已传送到对应位置");
         } else {
-            player.sendMessage("使用次数已耗尽！");
+            player.sendMessage(ChatColor.RED + "使用次数已耗尽！");
+        }
+    }
+
+    @EventHandler
+    private void onPlayerCraftItem(CraftItemEvent event) {
+        if (isTeleportStone(event.getCurrentItem())) {
+            boolean isOriginalDiamond = Arrays.stream(event.getInventory().getMatrix())
+                    .filter(item -> Objects.equals(item.getType(), Material.DIAMOND))
+                    .filter(ItemStack::hasItemMeta)
+                    .map(ItemStack::getItemMeta).filter(Objects::nonNull)
+                    .map(ItemMeta::getLore).filter(Objects::nonNull)
+                    .allMatch(Collection::isEmpty);
+
+            if (!isOriginalDiamond) {
+                event.getWhoClicked().sendMessage(ChatColor.RED + "这颗钻石已经经过铭刻了，无法再进行合成");
+                event.setCancelled(true);
+                return;
+            }
+
+            event.getWhoClicked().sendMessage(ChatColor.GREEN + "你合成了一颗传送钻石，对方块按右键设置地点，按左键进行传送");
         }
     }
 
@@ -221,7 +144,6 @@ public class TeleportStone implements IRecipeRegistrar, Listener {
                     return;
                 }
                 processTeleport(player, item, lore);
-                player.sendMessage(ChatColor.GOLD + "已传送到对应位置");
             }
         }
     }
